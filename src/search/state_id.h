@@ -35,6 +35,8 @@ public:
     bool operator!=(const StateID &other) const {
         return !(*this == other);
     }
+
+    int get_value() const { return value; } // I don't like this, but I needed to compare sets.
 };
 
 

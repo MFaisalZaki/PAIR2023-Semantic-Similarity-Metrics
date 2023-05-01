@@ -1,5 +1,5 @@
 #include "diversity_score_subset.h"
- 
+
 #include "../option_parser.h"
 #include "../plugin.h"
 
@@ -55,16 +55,20 @@ void DiversityScoreSubset::compute_metrics() {
         for (bool stability : tf_opts) {
             for (bool state : tf_opts) {
                 for (bool uniqueness : tf_opts) {
-                    if (!stability && !state && !uniqueness)
-                        continue;
-                    vector<size_t> selected_plan_indexes;
-                    compute_metrics_greedy(stability, state, uniqueness, selected_plan_indexes);
-                    if (dump_plans) {
-                        cout << "Found plans for metric " << get_metric_name(stability, state, uniqueness) << endl;
-                        print_plans(selected_plan_indexes);
-                        if (dump_json) {
-                            ofstream os(json_filename.c_str());                
-                            print_plans_json(selected_plan_indexes, os);
+                    for (bool sgo : tf_opts) {
+                        for (bool flex : tf_opts) {
+                            if (!stability && !state && !uniqueness && !sgo && !flex)
+                                continue;
+                            vector<size_t> selected_plan_indexes;
+                            compute_metrics_greedy(stability, state, uniqueness, sgo, flex, selected_plan_indexes);
+                            if (dump_plans) {
+                                cout << "Found plans for metric " << get_metric_name(stability, state, uniqueness, sgo, flex) << endl;
+                                print_plans(selected_plan_indexes);
+                                if (dump_json) {
+                                    ofstream os(json_filename.c_str());
+                                    print_plans_json(selected_plan_indexes, os);
+                                }
+                            }
                         }
                     }
                 }
@@ -73,16 +77,16 @@ void DiversityScoreSubset::compute_metrics() {
     } else {
         vector<size_t> selected_plan_indexes;
         if (exact_method) {
-            compute_metrics_mip_external(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, selected_plan_indexes);
+            compute_metrics_mip_external(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric, selected_plan_indexes);
         } else {
-            compute_metrics_greedy(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, selected_plan_indexes);
+            compute_metrics_greedy(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric, selected_plan_indexes);
         }
         
         if (dump_plans) {
-            cout << "Found plans for metric " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+            cout << "Found plans for metric " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
             print_plans(selected_plan_indexes);
             if (dump_json) {
-                ofstream os(json_filename.c_str());                
+                ofstream os(json_filename.c_str());
                 print_plans_json(selected_plan_indexes, os);
             }
         }
@@ -91,16 +95,16 @@ void DiversityScoreSubset::compute_metrics() {
 
 
 
-void DiversityScoreSubset::seed_with_best_pair(bool stability, bool state, bool uniqueness,
-            vector<size_t>& selected_plan_indexes, list<size_t>& candidates) {
+void DiversityScoreSubset::seed_with_best_pair(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                               vector<size_t>& selected_plan_indexes, list<size_t>& candidates) {
     // First, selecting a pair of plans with a maximal diversity
     float best_score = 0.0;
     size_t best_i = 0;
     size_t best_j = 1;
-
+    
     for (size_t i = 0; i < plans_sets.size() - 1; ++i) {
         for (size_t j = i+1; j < plans_sets.size(); ++j) {
-            float current_score = compute_score_for_pair(stability, state, uniqueness, i, j);
+            float current_score = compute_score_for_pair(stability, state, uniqueness, sgo, flex, i, j);
             if (current_score > best_score) {
                 best_score = current_score;
                 best_i = i;
@@ -108,7 +112,7 @@ void DiversityScoreSubset::seed_with_best_pair(bool stability, bool state, bool 
             }
         }
     }
-
+    
     for (size_t i = 0; i < plans_sets.size(); ++i) {
         if (i == best_i || i == best_j) {
             selected_plan_indexes.push_back(i);
@@ -121,7 +125,7 @@ void DiversityScoreSubset::seed_with_best_pair(bool stability, bool state, bool 
 
 
 void DiversityScoreSubset::seed_with_first_plans(vector<size_t>& selected_plan_indexes, list<size_t>& candidates, size_t num_plans) {
-
+    
     for (size_t i = 0; i < plans_sets.size(); ++i) {
         if (i < num_plans) {
             selected_plan_indexes.push_back(i);
@@ -131,57 +135,57 @@ void DiversityScoreSubset::seed_with_first_plans(vector<size_t>& selected_plan_i
     }
 }
 
-void DiversityScoreSubset::compute_metrics_greedy(bool stability, bool state, bool uniqueness,
-            vector<size_t>& selected_plan_indexes) {
-
-    cout << "Computing metrics " << get_metric_name(stability, state, uniqueness) << endl;
+void DiversityScoreSubset::compute_metrics_greedy(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                                  vector<size_t>& selected_plan_indexes) {
+    
+    cout << "Computing metrics " << get_metric_name(stability, state, uniqueness, sgo, flex) << endl;
     if (plans_sets.size() == 0)
         return;
-
+    
     if (plans_sets.size() == 1 || plans_subset_size <= 1) {
         float cluster_score = (plans_subset_size == 1 ? 1.0 : 0.0);
-        cout << "Score after clustering " << cluster_score << ", cluster size 1, metrics " << get_metric_name(stability, state, uniqueness) << endl;
+        cout << "Score after clustering " << cluster_score << ", cluster size 1, metrics " << get_metric_name(stability, state, uniqueness, sgo, flex) << endl;
         if (plans_subset_size == 1) {
             selected_plan_indexes.push_back(0);
         }
         return;
     }
-
+    
     // Applying a simple greedy algorithm for selecting plans one by one, until number_of_plans are chosen or plans_sets.size() is reached.
-
+    
     list<size_t> candidates;
     if (plans_seed_set_size > 0) {
         cout << "Seeding with first "<< plans_seed_set_size << " plans" << endl;
         seed_with_first_plans(selected_plan_indexes, candidates, (size_t)plans_seed_set_size);
     } else {
-        seed_with_best_pair(stability, state, uniqueness, selected_plan_indexes, candidates);
+        seed_with_best_pair(stability, state, uniqueness, sgo, flex, selected_plan_indexes, candidates);
     }
-
-
+    
+    
     while (true) {
         // Finding best match
-        if ((int) selected_plan_indexes.size() == plans_subset_size 
-            || selected_plan_indexes.size() == plans_sets.size() 
+        if ((int) selected_plan_indexes.size() == plans_subset_size
+            || selected_plan_indexes.size() == plans_sets.size()
             || candidates.size() == 0)
             break;
-        pair<float, size_t> res = find_best_next_candidate(stability, state, uniqueness, selected_plan_indexes, candidates);
+        pair<float, size_t> res = find_best_next_candidate(stability, state, uniqueness, sgo, flex, selected_plan_indexes, candidates);
         selected_plan_indexes.push_back(res.second);
     }
     if ((int) selected_plan_indexes.size() == plans_subset_size) {
-        float cluster_score = compute_score_for_set(stability, state, uniqueness, selected_plan_indexes);
-        cout << "Score after clustering " << cluster_score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(stability, state, uniqueness) << endl;
+        float cluster_score = compute_score_for_set(stability, state, uniqueness, sgo, flex, selected_plan_indexes);
+        cout << "Score after clustering " << cluster_score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(stability, state, uniqueness, sgo, flex) << endl;
     }
 }
 
-void DiversityScoreSubset::compute_metrics_mip_external(bool stability, bool state, bool uniqueness,
-            vector<size_t>& selected_plan_indexes) {
+void DiversityScoreSubset::compute_metrics_mip_external(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                                        vector<size_t>& selected_plan_indexes) {
     // For average!
     if (aggregator_metric != Aggregator::AVG) {
         cerr << "The aggregator for the selected formulation should be average!" << endl;
         utils::exit_with(utils::ExitCode::SEARCH_INPUT_ERROR);
     }
     (void) selected_plan_indexes;
-    cout << "Computing metrics " << get_metric_name(stability, state, uniqueness) << endl;
+    cout << "Computing metrics " << get_metric_name(stability, state, uniqueness, sgo, flex) << endl;
     if (plans_sets.size() == 0)
         return;
 
@@ -222,8 +226,8 @@ void DiversityScoreSubset::compute_metrics_mip_external(bool stability, bool sta
         for (size_t j = 0; j < plans_sets.size(); ++j) {
             if (i == j)
                 continue;
-            float current_score = compute_score_for_pair(stability, state, uniqueness, i, j);
-//            big_m += current_score;
+            float current_score = compute_score_for_pair(stability, state, uniqueness, sgo, flex, i, j);
+            //            big_m += current_score;
             os << " - " << current_score << " x" << j;
         }
         os << " <= 0" << endl;
@@ -258,8 +262,8 @@ void DiversityScoreSubset::compute_metrics_mip_external(bool stability, bool sta
     os << "End" << endl;
 }
 
-pair<float, size_t> DiversityScoreSubset::find_best_next_candidate(bool stability, bool state, bool uniqueness,
-        const std::vector<size_t>& selected_plan_indexes, list<size_t>& candidates) {
+pair<float, size_t> DiversityScoreSubset::find_best_next_candidate(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                                                   const std::vector<size_t>& selected_plan_indexes, list<size_t>& candidates) {
     // Going over all candidates, check if not already chosen, compute the score, return the best one
     float best_score = 0.0;
     // cout << "Finding best candidate out of " << candidates.size() << endl;
@@ -271,7 +275,7 @@ pair<float, size_t> DiversityScoreSubset::find_best_next_candidate(bool stabilit
         // computing the score as a sum over scores with the existing elements
         float current_score = 0.0;
         for (size_t j : selected_plan_indexes) {
-            float res = compute_score_for_pair(stability, state, uniqueness, i, j);
+            float res = compute_score_for_pair(stability, state, uniqueness, sgo, flex, i, j);
             current_score += res;
             size_t plan_ind1 = ordered_plan_indexes[i].first;
             size_t plan_ind2 = ordered_plan_indexes[j].first;

@@ -42,29 +42,29 @@ class DiversityScoreSubset : public DiversityScore {
     bool dump_plans;
     bool dump_json;
     std::string json_filename;
-
-    void compute_metrics_greedy(bool stability, bool state, bool uniqueness,
-            std::vector<size_t>& selected_plan_indexes);
-
-    void compute_metrics_mip_external(bool stability, bool state, bool uniqueness,
-            std::vector<size_t>& selected_plan_indexes);
-
-    std::pair<float, size_t> find_best_next_candidate(bool stability, bool state, bool uniqueness,
-            const std::vector<size_t>& selected_plan_indexes, std::list<size_t>& candidates);
-
-    void seed_with_best_pair(bool stability, bool state, bool uniqueness,
-            std::vector<size_t>& selected_plan_indexes, std::list<size_t>& candidates);
-
+    
+    void compute_metrics_greedy(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                std::vector<size_t>& selected_plan_indexes);
+    
+    void compute_metrics_mip_external(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                      std::vector<size_t>& selected_plan_indexes);
+    
+    std::pair<float, size_t> find_best_next_candidate(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                                      const std::vector<size_t>& selected_plan_indexes, std::list<size_t>& candidates);
+    
+    void seed_with_best_pair(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                             std::vector<size_t>& selected_plan_indexes, std::list<size_t>& candidates);
+    
     void seed_with_first_plans(std::vector<size_t>& selected_plan_indexes, std::list<size_t>& candidates, size_t num_plans);
-
+    
 protected:
-
+    
 public:
     DiversityScoreSubset(const options::Options &opts);
     virtual ~DiversityScoreSubset() = default;
-
+    
     virtual void compute_metrics();
-
+    
 };
 
 //}

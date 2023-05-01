@@ -1,5 +1,26 @@
 
 
+# Semantic Similarity Metrics
+
+This is the implementation of the paper
+```
+@InProceedings{mabdelwahed-pair-2023,
+  title =        "Bridging the Gap between Structural and Semantic Similarity in Diverse Planning",
+  author =       "Mustafa F Abdelwahed, Joan Espasa Arxer, Alice Toniolo, and Ian P. Gent",
+  booktitle =    "PAIR 2023 - ICAPS Workshop",
+  publisher =    "TBD",
+  pages =        "TBD",
+  year =         "2023"
+}
+```
+
+## How to use
+We have mainted the same usage found in [Diverse-score](https://github.com/IBM/diversescore) while including two new metrics:
+1. *compute_sgo_metric*
+2. *compute_flex_metric*
+
+
+
 # Diverse-score is a code that computes diversity score of a set of plans (or its subset) for a given metric.
 ## Implemented metrics are defined by:
 1. Pairwise measure: stability, state, uniqueness (and their linear combination, obtained by specifying several measures). The parameters are (default values are *false*)

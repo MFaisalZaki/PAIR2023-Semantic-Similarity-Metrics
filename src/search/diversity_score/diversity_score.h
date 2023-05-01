@@ -3,6 +3,7 @@
 
 #include "../search_space.h"
 #include "../plan_manager.h"
+#include "operator_interaction.h"
 
 #include <unordered_set>
 #include <unordered_map>
@@ -20,6 +21,8 @@ enum class Aggregator {
 
 //namespace diversity_score {
 typedef std::unordered_map<int, size_t> plan_set;
+typedef std::unordered_map<int, char> subgoal_encode;
+
 void add_diversity_score_options_to_parser(options::OptionParser &parser);
 void add_diversity_score_subset_options_to_parser(options::OptionParser &parser);
 void add_diversity_score_subset_bounded_options_to_parser(options::OptionParser &parser);
@@ -47,9 +50,13 @@ class DiversityScore {
     std::unordered_map<size_t, std::unordered_map<size_t, float>> state_metric_cache;
     std::unordered_map<size_t, std::unordered_map<size_t, float>> stability_metric_cache;
     std::unordered_map<size_t, std::unordered_map<size_t, float>> uniqueness_metric_cache;
-
+    std::unordered_map<size_t, std::unordered_map<size_t, float>> sgo_metric_cache;
+    std::unordered_map<size_t, std::unordered_map<size_t, float>> flex_metric_cache;
+    
     utils::HashMap<OperatorID, OperatorID> label_reduction;
-
+    
+    std::shared_ptr<OperatorInteraction> op_interaction;
+    
     const Plan& get_plan(size_t ind) const;
     void get_operators_for_label(std::vector<OperatorID>& ids, std::string label, const std::unordered_map<std::string, OperatorID>& ops_by_names) const;
     bool is_label_matching(std::string label, std::string operator_name) const;
@@ -79,24 +86,40 @@ class DiversityScore {
     bool is_none_of_those(int var, int val) const;
 
     void prepare_plans();
-
-    float compute_score_for_set_avg(bool stability, bool state, bool uniqueness,
-            const std::vector<size_t>& selected_plan_indexes);
-
-    float compute_score_for_set_min(bool stability, bool state, bool uniqueness,
-            const std::vector<size_t>& selected_plan_indexes);
-
-    float compute_discounted_prefix_similarity(bool stability, bool state, bool uniqueness,
-        const Plan& plan1, const Plan& plan2, float gamma) const;
-
+    
+    float compute_score_for_set_avg(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                    const std::vector<size_t>& selected_plan_indexes);
+    
+    float compute_score_for_set_min(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                    const std::vector<size_t>& selected_plan_indexes);
+    
+    float compute_discounted_prefix_similarity(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                               const Plan& plan1, const Plan& plan2, float gamma) const;
+    
+    std::vector<int> get_subgoal_sequence(std::vector<StateID> plan_trace);
+    std::string encode_trace(std::vector<StateID> trace);
+    float get_sgo_from_cache(size_t plan_index1, size_t plan_index2) const;
+    void add_sgo_to_cache(size_t plan_index1, size_t plan_index2, float value);
+    float compute_sgo_similarity_score(size_t plan_index1, size_t plan_index2);
+    float compute_sgo_similarity_score(const Plan& plan_1, const Plan& plan_2);
+    
+    size_t check_interchangeability(const GlobalState& current, const Plan& plan, size_t from_index) const;
+    std::vector<Plan> generate_partial_order_plans_from(const Plan& plan);
+    std::set<std::set<int>> convert_plan_to_set_of_pops_sets(const std::vector<Plan>& plan);
+    float get_flex_from_cache(size_t plan_index1, size_t plan_index2) const;
+    void add_flex_to_cache(size_t plan_index1, size_t plan_index2, float value);
+    float compute_flex_similarity_score(size_t plan_index1, size_t plan_index2);
+    float compute_flex_similarity_score(const Plan& plan_1, const Plan& plan_2);
+    
     // float compute_discounted_prefix_score_for_set_avg(bool stability, bool state, bool uniqueness,
     //     const vector<size_t>& selected_plan_indexes, float gamma) const;
 
     // float compute_discounted_prefix_score_for_set_min(bool stability, bool state, bool uniqueness,
     //     const vector<size_t>& selected_plan_indexes, float gamma) const;
-    float compute_similarity_for_prefix_no_cache(bool stability, bool state, bool uniqueness,
-        const Plan& plan1, const Plan& plan2) const;
-
+    float compute_similarity_for_prefix_no_cache(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                                 const Plan& plan1, const Plan& plan2) const;
+    
+    
     void read_label_reduction(std::string file);
 
 protected:
@@ -104,7 +127,11 @@ protected:
     bool compute_states_metric;
     bool compute_stability_metric;
     bool compute_uniqueness_metric;
-
+    bool compute_flex_metric;
+    bool compute_sgo_metric;
+    
+    subgoal_encode subgoals_encoded_list;
+    
     Aggregator aggregator_metric;
     bool dump_pairs;
     bool all_metrics;
@@ -113,19 +140,19 @@ protected:
     std::vector<plan_set> plans_sets;
     std::vector<std::pair<size_t, int>> ordered_plan_indexes;
     std::vector<Plan> _plans;
-
-    std::string get_metric_name(bool stability, bool state, bool uniqueness) const;
+    
+    std::string get_metric_name(bool stability, bool state, bool uniqueness, bool sgo, bool flex) const;
     void print_plan(size_t ind);
     void print_plans(const std::vector<size_t>& selected_plan_indexes);
     void print_all_plans();
     void print_plans_json(const std::vector<size_t>& selected_plan_indexes, std::ostream& os);
     void print_all_plans_json(std::ostream& os);
-
-    float compute_score_for_pair(bool stability, bool state, bool uniqueness,
-            size_t plan_index1, size_t plan_index2);
-
-    float compute_score_for_set(bool stability, bool state, bool uniqueness,
-            const std::vector<size_t>& selected_plan_indexes);
+    
+    float compute_score_for_pair(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                 size_t plan_index1, size_t plan_index2);
+    
+    float compute_score_for_set(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                const std::vector<size_t>& selected_plan_indexes);
     void compute_metrics_exact_set();
     OperatorID get_reduced_label(OperatorID op) const;
 

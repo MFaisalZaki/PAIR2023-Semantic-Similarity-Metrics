@@ -45,14 +45,14 @@ void DiversityScoreSubsetBounded::compute_metrics() {
         utils::exit_with(utils::ExitCode::SEARCH_INPUT_ERROR);
     }    
     if (dump_plans) {
-        cout << "Found plans for metric " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+        cout << "Found plans for metric " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
         print_plans(selected_plan_indexes);
     }
 }
 
 void DiversityScoreSubsetBounded::compute_metric_maxclique(vector<size_t>& selected_plan_indexes) {
-
-    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    
+    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
     if (plans_sets.size() == 0)
         return;
 
@@ -69,7 +69,7 @@ void DiversityScoreSubsetBounded::compute_metric_maxclique(vector<size_t>& selec
     for (size_t i = 0; i < plans_sets.size(); ++i) {
 
         for (size_t j = i + 1; j < plans_sets.size(); ++j) {
-            float current_score = compute_score_for_pair(true, false, false, i, j);
+            float current_score = compute_score_for_pair(true, false, false, false, false, i, j);
             if (current_score >= metric_bound) {
                 cgraph[i].push_back(j);
                 cgraph[j].push_back(i);
@@ -138,12 +138,12 @@ void DiversityScoreSubsetBounded::compute_metric_maxclique(vector<size_t>& selec
     if (selected_plan_indexes.size() > 0) {
         score = 1.0;
     }
-    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
 }
 
 void DiversityScoreSubsetBounded::compute_metric_mip(vector<size_t>& selected_plan_indexes) {
-
-    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    
+    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
     if (plans_sets.size() == 0)
         return;
 
@@ -178,7 +178,7 @@ void DiversityScoreSubsetBounded::compute_metric_mip(vector<size_t>& selected_pl
 
     for (size_t i = 0; i < plans_sets.size(); ++i) {
         for (size_t j = i + 1; j < plans_sets.size(); ++j) {
-            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, i, j);
+            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric, i, j);
             //cout << " Plans " << i << ", " << j << ", score: " << current_score << endl;
             //cout << "Diff: " << (current_score - metric_bound) << endl;
             if (current_score + EPSILON < metric_bound) {
@@ -212,7 +212,7 @@ void DiversityScoreSubsetBounded::compute_metric_mip(vector<size_t>& selected_pl
     if (selected_plan_indexes.size() > 0) {
         score = 1.0;
     }
-    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
 }
 
 void DiversityScoreSubsetBounded::compute_metric_mip_external(vector<size_t>& selected_plan_indexes) {
@@ -222,7 +222,7 @@ void DiversityScoreSubsetBounded::compute_metric_mip_external(vector<size_t>& se
 
 void DiversityScoreSubsetBounded::generate_mip_file(vector<size_t>& selected_plan_indexes) {
     (void) selected_plan_indexes;
-    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
     if (plans_sets.size() == 0)
         return;
 
@@ -247,7 +247,7 @@ void DiversityScoreSubsetBounded::generate_mip_file(vector<size_t>& selected_pla
     // Constraints
     for (size_t i = 0; i < plans_sets.size(); ++i) {
         for (size_t j = i + 1; j < plans_sets.size(); ++j) {
-            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, i, j);
+            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric, i, j);
             //cout << " Plans " << i << ", " << j << ", score: " << current_score << endl;
             //cout << "Diff: " << (current_score - metric_bound) << endl;
             if (current_score + EPSILON < metric_bound) {
@@ -276,8 +276,8 @@ void DiversityScoreSubsetBounded::generate_mip_file(vector<size_t>& selected_pla
 }
 
 void DiversityScoreSubsetBounded::compute_metric_dfs(vector<size_t>& selected_plan_indexes) {
-
-    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    
+    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
     if (plans_sets.size() == 0)
         return;
 
@@ -320,7 +320,7 @@ void DiversityScoreSubsetBounded::compute_metric_dfs(vector<size_t>& selected_pl
             //    continue;
             bool is_clique = true;
             for (size_t j : clique) {
-                float current_score = compute_score_for_pair(true, false, false, i, j);
+                float current_score = compute_score_for_pair(true, false, false, false, false, i, j);
                 if (current_score < metric_bound) {
                     is_clique = false;
                     break;
@@ -353,7 +353,7 @@ void DiversityScoreSubsetBounded::compute_metric_dfs(vector<size_t>& selected_pl
     for (auto i : selected_plan_indexes)
         cout << " " << i;
     cout << endl;
-    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
 }
 
 

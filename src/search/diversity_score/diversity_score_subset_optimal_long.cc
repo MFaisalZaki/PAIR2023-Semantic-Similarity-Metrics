@@ -1,5 +1,5 @@
 #include "diversity_score_subset_optimal_long.h"
- 
+
 #include "../option_parser.h"
 #include "../plugin.h"
 
@@ -40,7 +40,7 @@ void DiversityScoreSubsetOptimalLong::compute_metrics() {
         utils::exit_with(utils::ExitCode::SEARCH_INPUT_ERROR);
     }    
     if (dump_plans) {
-        cout << "Found plans for metric " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+        cout << "Found plans for metric " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
         print_plans(selected_plan_indexes);
     }
 }
@@ -63,10 +63,10 @@ size_t DiversityScoreSubsetOptimalLong::get_binary_var_index(size_t plan_index1,
 }
 
 void DiversityScoreSubsetOptimalLong::compute_metric_mip(vector<size_t>& selected_plan_indexes) {
-    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
     if (plans_sets.size() == 0)
         return;
-
+    
     if (ordered_plan_indexes.size() == 0 || _plans.size() == 0) {
         cout << " no plans" << endl;
     }
@@ -96,7 +96,7 @@ void DiversityScoreSubsetOptimalLong::compute_metric_mip(vector<size_t>& selecte
     vector<lp::LPConstraint> constraints;
     for (size_t i = 0; i < plans_sets.size(); ++i) {
         for (size_t j = i + 1; j < plans_sets.size(); ++j) {
-            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, i, j);
+            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric, i, j);
             //cout << " Plans " << i << ", " << j << ", score: " << current_score << endl;
             //cout << "Diff: " << (current_score - metric_bound) << endl;
             // Adding a constraint
@@ -151,21 +151,21 @@ void DiversityScoreSubsetOptimalLong::compute_metric_mip(vector<size_t>& selecte
     if (selected_plan_indexes.size() > 0) {
         score = lp_solver.get_objective_value();
     }
-    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
 }
 
 void DiversityScoreSubsetOptimalLong::compute_metric_mip_external(vector<size_t>& selected_plan_indexes) {
     generate_mip_file(selected_plan_indexes);
-
+    
 }
 
 void DiversityScoreSubsetOptimalLong::generate_mip_file(vector<size_t>& selected_plan_indexes) {
-
+    
     (void) selected_plan_indexes;
-    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
     if (plans_sets.size() == 0)
         return;
-
+    
     if (ordered_plan_indexes.size() == 0 || _plans.size() == 0) {
         cout << " no plans" << endl;
     }
@@ -188,14 +188,14 @@ void DiversityScoreSubsetOptimalLong::generate_mip_file(vector<size_t>& selected
     os << "Subject To" << endl;
     size_t constr_count = 1;
     // Constraints
-
+    
     for (size_t i = 0; i < plans_sets.size(); ++i) {
         for (size_t j = i + 1; j < plans_sets.size(); ++j) {
-            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, i, j);
+            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric, i, j);
             //cout << " Plans " << i << ", " << j << ", score: " << current_score << endl;
             //cout << "Diff: " << (current_score - metric_bound) << endl;
             // Adding a constraint
-
+            
             size_t ind = get_binary_var_index(i, j);
             os << "c" << constr_count << ": d + x"<< ind << "<= " << current_score + 1.0 << endl; 
             constr_count++;
@@ -204,31 +204,31 @@ void DiversityScoreSubsetOptimalLong::generate_mip_file(vector<size_t>& selected
     for (size_t i = 0; i < plans_sets.size(); ++i) {
         lp::LPConstraint d = lp::LPConstraint(0.0, 0.0);
         size_t u_ind = get_binary_var_index(i);
-
+        
         os << "c" << constr_count << ": " << plans_subset_size - 1 << " * x"<< u_ind ; 
-
+        
         for (size_t j = 0; j < plans_sets.size(); ++j) {
             if (i ==j) {
                 continue;   
             }
-
+            
             size_t uv_ind = get_binary_var_index(i,j);
             os << " - x" << uv_ind; 
         }
         os << " = 0" << endl;
         constr_count++;
     }
-
+    
     os << "c" << constr_count << ": " ; 
     for (size_t i=0; i < plans_sets.size(); ++i) {
         size_t u_ind = get_binary_var_index(i);
         os << " + x" << u_ind; 
     }
     os << " = " << plans_subset_size << endl;
-
+    
     os << "Binaries" << endl;
     size_t num_binary_vars = plans_sets.size() * (plans_sets.size() + 1) / 2;
-
+    
     for (size_t i=0; i < num_binary_vars; ++i) {
         os << "x" << i + 1 << " "; 
     }
@@ -242,12 +242,12 @@ static shared_ptr<DiversityScore> _parse_subset_optimal(OptionParser &parser) {
     add_diversity_score_subset_options_to_parser(parser);    
     add_diversity_score_subset_optimal_options_to_parser(parser);
     Options opts = parser.parse();
-
+    
     shared_ptr<DiversityScoreSubsetOptimalLong> engine;
     if (!parser.dry_run()) {
         engine = make_shared<DiversityScoreSubsetOptimalLong>(opts);
     }
-
+    
     return engine;
 }
 

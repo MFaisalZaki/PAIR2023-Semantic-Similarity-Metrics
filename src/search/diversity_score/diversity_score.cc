@@ -5,6 +5,7 @@
 
 #include "../state_registry.h"
 #include "../tasks/root_task.h"
+#include "../task_utils/task_properties.h"
 
 #include <list>
 #include <math.h>       /* fabs */
@@ -22,33 +23,36 @@ using namespace std;
 //namespace diversity_score {
 
 DiversityScore::DiversityScore(const Options &opts) :
-        task(tasks::g_root_task),
-        task_proxy(*task),
-        state_registry(task_proxy),
-        search_space(state_registry),
-        cost_bound(opts.get<int>("cost_bound")),
-        plans_as_multisets(opts.get<bool>("plans_as_multisets")),
-        use_cache(opts.get<bool>("use_cache")),
-        similarity(opts.get<bool>("similarity")),
-        reduce_labels(opts.get<bool>("reduce_labels")),
-        labels_lifted(opts.get<bool>("labels_lifted")),
-        reduce_skip_unmentioned(opts.get<bool>("reduce_skip_unmentioned")),
-        discounted_prefixes(opts.get<bool>("discounted_prefixes")),
-        discount_factor((float)opts.get<double>("discount_factor")),
-        plans_seed_set_size(opts.get<int>("plans_seed_set_size")),
-        compute_states_metric(opts.get<bool>("compute_states_metric")),
-        compute_stability_metric(opts.get<bool>("compute_stability_metric")),
-        compute_uniqueness_metric(opts.get<bool>("compute_uniqueness_metric")),
-        aggregator_metric(Aggregator(opts.get_enum("aggregator_metric"))),
-        dump_pairs(opts.get<bool>("dump_pairs")),
-        all_metrics(opts.get<bool>("all_metrics")) 
+task(tasks::g_root_task),
+task_proxy(*task),
+state_registry(task_proxy),
+search_space(state_registry),
+cost_bound(opts.get<int>("cost_bound")),
+plans_as_multisets(opts.get<bool>("plans_as_multisets")),
+use_cache(opts.get<bool>("use_cache")),
+similarity(opts.get<bool>("similarity")),
+reduce_labels(opts.get<bool>("reduce_labels")),
+labels_lifted(opts.get<bool>("labels_lifted")),
+reduce_skip_unmentioned(opts.get<bool>("reduce_skip_unmentioned")),
+discounted_prefixes(opts.get<bool>("discounted_prefixes")),
+discount_factor((float)opts.get<double>("discount_factor")),
+plans_seed_set_size(opts.get<int>("plans_seed_set_size")),
+compute_states_metric(opts.get<bool>("compute_states_metric")),
+compute_stability_metric(opts.get<bool>("compute_stability_metric")),
+compute_uniqueness_metric(opts.get<bool>("compute_uniqueness_metric")),
+compute_flex_metric(opts.get<bool>("compute_flex_metric")),
+compute_sgo_metric(opts.get<bool>("compute_sgo_metric")),
+aggregator_metric(Aggregator(opts.get_enum("aggregator_metric"))),
+dump_pairs(opts.get<bool>("dump_pairs")),
+all_metrics(opts.get<bool>("all_metrics")) 
 {
+    op_interaction = make_shared<OperatorInteraction>(task_proxy);
     // Reading the label reduction from json
     if (reduce_labels) {
         if (compute_states_metric) {
             cerr << "Label reduction is currently not implemented with states metric" << endl;
             utils::exit_with(utils::ExitCode::SEARCH_INPUT_ERROR);
-
+            
         }
         read_label_reduction(opts.get<string>("label_reduction_file"));
     }
@@ -61,11 +65,11 @@ void DiversityScore::read_label_reduction(string file) {
     lr_file.open(file);
     if (!lr_file.is_open()) {
         throw std::system_error(errno, std::system_category(), "failed to open file");
-
+        
         cerr << "File is not open!" << endl;
         utils::exit_with(utils::ExitCode::SEARCH_INPUT_ERROR);
     }
-
+    
     std::unordered_map<string, utils::HashSet<OperatorID>> ops_by_reduced_labels;
     std::unordered_map<string, OperatorID> ops_by_names;
     plan_manager.get_ops_by_names(ops_by_names, task_proxy);
@@ -165,30 +169,34 @@ void DiversityScore::compute_metrics_exact_set() {
         for (bool stability : tf_opts) {
             for (bool state : tf_opts) {
                 for (bool uniqueness : tf_opts) {
-                    if (!stability && !state && !uniqueness)
-                        continue;
-                    float cluster_score = compute_score_for_set(stability, state, uniqueness, selected_plan_indexes);
-                    // cout << "Score: " << cluster_score << ", metrics " << get_metric_name(stability, state, uniqueness) << endl;
-                    cout << "Score after clustering " << cluster_score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(stability, state, uniqueness) << endl;
+                    for (bool sgo : tf_opts) {
+                        for (bool flex : tf_opts) {
+                            if (!stability && !state && !uniqueness && !sgo && !flex)
+                                continue;
+                            float cluster_score = compute_score_for_set(stability, state, uniqueness, sgo, flex, selected_plan_indexes);
+                            // cout << "Score: " << cluster_score << ", metrics " << get_metric_name(stability, state, uniqueness) << endl;
+                            cout << "Score after clustering " << cluster_score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(stability, state, uniqueness, sgo, flex) << endl;
+                        }
+                    }
                 }
             }
         }
     } else {
-        float cluster_score = compute_score_for_set(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, selected_plan_indexes);
+        float cluster_score = compute_score_for_set(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric, selected_plan_indexes);
         // cout << "Score: " << cluster_score << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
-        cout << "Score after clustering " << cluster_score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+        cout << "Score after clustering " << cluster_score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
     }
 }
 
 void DiversityScore::read_plans() {
     vector<Plan> plans;
-    plan_manager.load_plans(plans, task_proxy); 
-
+    plan_manager.load_plans(plans, task_proxy);
+    
     assert(_plans.empty());
     if (cost_bound >= 0) {
         cout << "Specified cost bound, ignoring plans with cost under the bound" << endl;
     }
-    // We start by removing non-unique plans    
+    // We start by removing non-unique plans
     utils::HashSet<Plan> unique_plans;
     for (Plan plan : plans) {
         if (cost_bound >= 0) {
@@ -207,14 +215,14 @@ void DiversityScore::read_plans() {
     prepare_plans();
 }
 
-string DiversityScore::get_metric_name(bool stability, bool state, bool uniqueness) const {
+string DiversityScore::get_metric_name(bool stability, bool state, bool uniqueness, bool sgo, bool flex) const {
     /*
      * value_attribute_names = {'value_cost' : ['--metric-cost'], 'value_stability' : ['--metric-stability'],
-                         'value_state' : ['--metric-state'], 'value_uniqueness' : ['--metric-uniqueness'],
-                         'value_state_stability' : ['--metric-state', '--metric-stability'],
-                         'value_uniqueness_stability' : ['--metric-uniqueness', '--metric-stability'],
-                         'value_state_uniqueness' : ['--metric-state', '--metric-uniqueness'],
-                         'value_stability_uniqueness_state' : ['--metric-stability', '--metric-uniqueness', '--metric-state']}
+     'value_state' : ['--metric-state'], 'value_uniqueness' : ['--metric-uniqueness'],
+     'value_state_stability' : ['--metric-state', '--metric-stability'],
+     'value_uniqueness_stability' : ['--metric-uniqueness', '--metric-stability'],
+     'value_state_uniqueness' : ['--metric-state', '--metric-uniqueness'],
+     'value_stability_uniqueness_state' : ['--metric-stability', '--metric-uniqueness', '--metric-state']}
      */
     string name = "";
     if (state && stability && uniqueness) {
@@ -231,6 +239,10 @@ string DiversityScore::get_metric_name(bool stability, bool state, bool uniquene
         name = "stability";
     } else if (uniqueness) {
         name = "uniqueness";
+    } else if (sgo) {
+        name = "sgo";
+    } else if (flex) {
+        name = "flex";
     } else {
         cerr << "At least one of state, stability, uniqueness should be selected" << endl;
         utils::exit_with(utils::ExitCode::SEARCH_INPUT_ERROR);
@@ -282,6 +294,15 @@ void DiversityScore::prepare_plans() {
         plan_to_set(set_a, plan, plans_as_multisets);
         plans_sets.push_back(set_a);
     }
+    
+    // Encode subgoals in alpha numeric sequence.
+    char base_encode_char = 'a';
+    for (auto subgoal : task_proxy.get_goals()) {
+        subgoals_encoded_list[subgoal.get_pair().var] = base_encode_char;
+        base_encode_char++;
+        assert(base_encode_char < 'z' && "Subgoals limit exceeded.");
+    }
+    subgoals_encoded_list[-1] = base_encode_char;
 }
 
 
@@ -369,12 +390,12 @@ const Plan& DiversityScore::get_plan(size_t ind) const {
 }
 
 
-float DiversityScore::compute_score_for_set(bool stability, bool state, bool uniqueness,
-        const vector<size_t>& selected_plan_indexes) {
+float DiversityScore::compute_score_for_set(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                            const vector<size_t>& selected_plan_indexes) {
     if (aggregator_metric == Aggregator::AVG) {
-        return compute_score_for_set_avg(stability, state, uniqueness, selected_plan_indexes);
+        return compute_score_for_set_avg(stability, state, uniqueness, sgo, flex, selected_plan_indexes);
     } else if (aggregator_metric == Aggregator::MIN) {
-        return compute_score_for_set_min(stability, state, uniqueness, selected_plan_indexes);
+        return compute_score_for_set_min(stability, state, uniqueness, sgo, flex, selected_plan_indexes);
     } else {
         cerr << "Undefined aggregation method" << endl;
         utils::exit_with(utils::ExitCode::SEARCH_INPUT_ERROR);
@@ -382,14 +403,14 @@ float DiversityScore::compute_score_for_set(bool stability, bool state, bool uni
     return -1.0;
 }
 
-float DiversityScore::compute_score_for_set_avg(bool stability, bool state, bool uniqueness,
-        const vector<size_t>& selected_plan_indexes) {
+float DiversityScore::compute_score_for_set_avg(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                                const vector<size_t>& selected_plan_indexes) {
     float res = 0.0;
     size_t count_pairs = 0;
     for (size_t i=0; i < selected_plan_indexes.size() - 1; ++i) {
         for (size_t j=i+1; j < selected_plan_indexes.size(); ++j) {
             count_pairs++;
-            float r = compute_score_for_pair(stability, state, uniqueness, selected_plan_indexes[i], selected_plan_indexes[j]);
+            float r = compute_score_for_pair(stability, state, uniqueness, sgo, flex, selected_plan_indexes[i], selected_plan_indexes[j]);
             size_t plan_ind1 = ordered_plan_indexes[selected_plan_indexes[i]].first;
             size_t plan_ind2 = ordered_plan_indexes[selected_plan_indexes[j]].first;
             if (dump_pairs)
@@ -400,8 +421,8 @@ float DiversityScore::compute_score_for_set_avg(bool stability, bool state, bool
     return res / (float) count_pairs;
 }
 
-float DiversityScore::compute_score_for_set_min(bool stability, bool state, bool uniqueness,
-        const vector<size_t>& selected_plan_indexes) {
+float DiversityScore::compute_score_for_set_min(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                                const vector<size_t>& selected_plan_indexes) {
     // Not assuming any value on the elements, returning 0 when no pairs exist
     if (selected_plan_indexes.size() < 2) {
         return 0.0;
@@ -409,7 +430,7 @@ float DiversityScore::compute_score_for_set_min(bool stability, bool state, bool
     float min_res = numeric_limits<float>::max();
     for (size_t i=0; i < selected_plan_indexes.size() - 1; ++i) {
         for (size_t j=i+1; j < selected_plan_indexes.size(); ++j) {
-            float res = compute_score_for_pair(stability, state, uniqueness, selected_plan_indexes[i], selected_plan_indexes[j]);
+            float res = compute_score_for_pair(stability, state, uniqueness, sgo, flex, selected_plan_indexes[i], selected_plan_indexes[j]);
             size_t plan_ind1 = ordered_plan_indexes[selected_plan_indexes[i]].first;
             size_t plan_ind2 = ordered_plan_indexes[selected_plan_indexes[j]].first;
             if (dump_pairs)
@@ -422,9 +443,9 @@ float DiversityScore::compute_score_for_set_min(bool stability, bool state, bool
 }
 
 
-float DiversityScore::compute_discounted_prefix_similarity(bool stability, bool state, bool uniqueness,
-        const Plan& plan1, const Plan& plan2, float gamma) const {
-
+float DiversityScore::compute_discounted_prefix_similarity(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                                           const Plan& plan1, const Plan& plan2, float gamma) const {
+    
     size_t m = min(plan1.size(), plan2.size());
     float res = 0.0;
     float gamma_to_i = 1.0;
@@ -445,8 +466,8 @@ float DiversityScore::compute_discounted_prefix_similarity(bool stability, bool 
         //     cout << "  " << operators[a].get_name();
         // }
         // cout << endl;
-
-        float s = compute_similarity_for_prefix_no_cache(stability, state, uniqueness, prefix1, prefix2);
+        
+        float s = compute_similarity_for_prefix_no_cache(stability, state, uniqueness, sgo, flex, prefix1, prefix2);
         res += s * gamma_to_i;
         // cout << "i=" << i+1 << ", gamma^i="<<gamma_to_i << ", s=" << s<< ", res=" << res << endl;
     }
@@ -457,9 +478,9 @@ float DiversityScore::compute_discounted_prefix_similarity(bool stability, bool 
     return 1.0 - ret;
 }
 
-float DiversityScore::compute_similarity_for_prefix_no_cache(bool stability, bool state, bool uniqueness,
-        const Plan& plan1, const Plan& plan2) const {
-
+float DiversityScore::compute_similarity_for_prefix_no_cache(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                                             const Plan& plan1, const Plan& plan2) const {
+    
     float divide_by = 0.0;
     float res = 0.0;
 
@@ -488,7 +509,15 @@ float DiversityScore::compute_similarity_for_prefix_no_cache(bool stability, boo
         divide_by++;
         res += compute_uniqueness_similarity_score(set_a, set_b);
     }
-
+    if (sgo) {
+        divide_by++;
+        // TODO: Add
+    }
+    if (flex) {
+        divide_by++;
+        // TODO: Add
+    }
+    
     float ret = (res / divide_by);
     //cout << "Score for a pair: " << ret << ", indices " << plan_index1 << ", " << plan_index2 << endl;
     if (ret > 1.0) {
@@ -507,15 +536,15 @@ float DiversityScore::compute_similarity_for_prefix_no_cache(bool stability, boo
 }
 
 
-float DiversityScore::compute_score_for_pair(bool stability, bool state, bool uniqueness,
-        size_t plan_index1, size_t plan_index2) {
-
+float DiversityScore::compute_score_for_pair(bool stability, bool state, bool uniqueness, bool sgo, bool flex,
+                                             size_t plan_index1, size_t plan_index2) {
+    
     if (discounted_prefixes) {
-        float ret = compute_discounted_prefix_similarity(stability, state, uniqueness, get_plan(plan_index1), get_plan(plan_index2), discount_factor);
+        float ret = compute_discounted_prefix_similarity(stability, state, uniqueness, sgo, flex, get_plan(plan_index1), get_plan(plan_index2), discount_factor);
         return similarity ? 1.0 - ret: ret;
-
+        
     }
-
+    
     float divide_by = 0.0;
     float res = 0.0;
     if (stability) {
@@ -531,7 +560,15 @@ float DiversityScore::compute_score_for_pair(bool stability, bool state, bool un
         divide_by++;
         res += compute_uniqueness_similarity_score(plan_index1, plan_index2);
     }
-
+    if (sgo) {
+        divide_by++;
+        res += compute_sgo_similarity_score(plan_index1, plan_index2);
+    }
+    if (flex) {
+        divide_by++;
+        res += compute_flex_similarity_score(plan_index1, plan_index2);
+    }
+    
     float ret = 1.0 - (res / divide_by);
     //cout << "Score for a pair: " << ret << ", indices " << plan_index1 << ", " << plan_index2 << endl;
     if (ret < 0.0 || ret > 1.0) {
@@ -820,23 +857,294 @@ float DiversityScore::compute_state_similarity_score(StateID state1, StateID sta
     return (float) same_vars / (float) all_vals;
 }
 
+vector<int> DiversityScore::get_subgoal_sequence(std::vector<StateID> plan_trace) {
+    vector<int> sub_goal_sequence(plan_trace.size(), -1);
+    // Here we want to know which states achieved which subgoal.
+    
+    size_t state_sub_goal_index = 0;
+    for (auto state_id : plan_trace) {
+        auto state = state_registry.lookup_state(state_id).unpack();
+        for (FactProxy goal : task_proxy.get_goals()) {
+            if (state[goal.get_variable()] == goal) {
+                if (find(sub_goal_sequence.begin(), sub_goal_sequence.end(), goal.get_pair().var) == sub_goal_sequence.end()) {
+                    sub_goal_sequence[state_sub_goal_index] = goal.get_pair().var;
+                }
+            }
+        }
+        state_sub_goal_index++;
+    }
+    return sub_goal_sequence;
+}
+
+
+string DiversityScore::encode_trace(std::vector<StateID> trace) {
+    string encoded_trace = "";
+    for (auto subgoal : get_subgoal_sequence(trace)) {
+        encoded_trace += subgoals_encoded_list[subgoal];
+    }
+    return encoded_trace;
+}
+
+float DiversityScore::get_sgo_from_cache(size_t plan_index1, size_t plan_index2) const {
+    if (!use_cache)
+        return -1.0;
+    if (plan_index1 > plan_index2)
+        return get_sgo_from_cache(plan_index2, plan_index1);
+    
+    auto it = sgo_metric_cache.find(plan_index1);
+    if ( it != sgo_metric_cache.end()) {
+        auto it2 = (*it).second.find(plan_index2);
+        if (it2 != (*it).second.end())
+            return (*it2).second;
+    }
+    return -1.0;
+}
+
+void DiversityScore::add_sgo_to_cache(size_t plan_index1, size_t plan_index2, float value) {
+    if (!use_cache)
+        return;
+    if (plan_index1 > plan_index2) {
+        add_sgo_to_cache(plan_index2, plan_index1, value);
+        return;
+    }
+    auto it = sgo_metric_cache.find(plan_index1);
+    
+    if ( it == sgo_metric_cache.end()) {
+        sgo_metric_cache.insert(std::make_pair(plan_index1, unordered_map<size_t, float>()));
+        it = sgo_metric_cache.find(plan_index1);
+        assert(it != sgo_metric_cache.end());
+    }
+    
+    assert((*it).second.find(plan_index2) == (*it).second.end());
+    (*it).second.insert(std::make_pair(plan_index2, value));
+}
+
+
+float DiversityScore::compute_sgo_similarity_score(size_t plan_index1, size_t plan_index2) {
+    
+    auto plan_1 = get_plan(plan_index1);
+    auto plan_2 = get_plan(plan_index2);
+    
+    if (plan_1.size() < plan_2.size()) {
+        return compute_sgo_similarity_score(plan_2, plan_1);
+    }
+    
+    // Try to take from cache;
+    auto ret = get_sgo_from_cache(plan_index1, plan_index2);
+    if (ret >= 0.0) {
+        return ret;
+    }
+    
+    ret = compute_sgo_similarity_score(plan_1, plan_2);
+    add_sgo_to_cache(plan_index1, plan_index2, ret);
+    return ret;
+}
+
+float DiversityScore::compute_sgo_similarity_score(const Plan& plan_1, const Plan& plan_2) {
+    
+    vector<StateID> trace_a;
+    vector<StateID> trace_b;
+    
+    search_space.get_states_trace_from_path(plan_1, trace_a, task_proxy);
+    search_space.get_states_trace_from_path(plan_2, trace_b, task_proxy);
+    
+    auto encoded_plan_a_trace = encode_trace(trace_a);
+    auto encoded_plan_b_trace = encode_trace(trace_b);
+    
+    size_t upper_bound = encoded_plan_a_trace.size();
+    size_t remaining_distance = 0;
+    if (encoded_plan_a_trace.size() != encoded_plan_b_trace.size()) {
+        upper_bound = min(encoded_plan_a_trace.size(), encoded_plan_b_trace.size());
+        remaining_distance = abs((float)encoded_plan_a_trace.size() - (float)encoded_plan_b_trace.size());
+    }
+    
+    //finding Hamming distance
+    float hamming_distance = 0.0;
+    for (size_t i = 0; i < upper_bound; i++) {
+        if (encoded_plan_a_trace[i] != encoded_plan_b_trace[i]) { hamming_distance++; }
+    }
+    
+    hamming_distance += remaining_distance;
+    hamming_distance /= max(encoded_plan_a_trace.size(), encoded_plan_b_trace.size()); // normalise the value.
+    // Add to cache
+    hamming_distance = 1 - hamming_distance;
+    return hamming_distance;
+}
+
+
+
+size_t DiversityScore::check_interchangeability(const GlobalState& current, const Plan& plan, size_t from_index) const {
+    OperatorsProxy operators = task_proxy.get_operators();
+    for (size_t i = from_index + 1; i < plan.size(); ++i) {
+        OperatorID op_id = plan[i];
+        int op_no = op_id.get_index();
+        if (!task_properties::is_applicable(operators[op_id], current.unpack())) {
+            return (i - from_index);
+        }
+        // Going over all operators up until now
+        for (size_t j = from_index; j < i; ++j) {
+            OperatorID prev_op = plan[j];
+            int prev_op_no = prev_op.get_index();
+            
+            if (op_interaction->interfere(op_no, prev_op_no))
+                return (i - from_index);
+        }
+    }
+    return (plan.size() - from_index);
+}
+
+vector<Plan> DiversityScore::generate_partial_order_plans_from(const Plan& plan) {
+    // Go over the plan, adding edges.
+    // At each step, look forward for interchangeable operators (all pairwise interchangeable)
+    // If found, add all these in a bfs manner
+    
+    // MF: Note that this code is copied from forbiditerative function: PlansGraph::add_plan_reduce_order_neighbors(const Plan& plan)
+    vector<Plan> found_plans;
+    
+    auto current_state = state_registry.get_initial_state();
+    auto operators = task_proxy.get_operators();
+    
+    size_t current_state_index = 0;
+    size_t current_pop_index = 0;
+    while (current_state_index < plan.size()) {
+        Plan devised_pop;
+        size_t num_interchangeable = check_interchangeability(current_state, plan, current_state_index);
+        
+        // TODO: We need to understand how it collects those interchangeable operators together.
+        // So the original code uses a BFS data structure to maintain such information.
+        // Therefore, all what we have to do it to collect the operators execute in the following
+        // loop, and this will indicate the POP required.
+        
+        // Getting the state that results from applying all these ops (in any order)
+        for (size_t i = 0; i < num_interchangeable; ++i) {
+            OperatorID opid = plan[current_state_index];
+            current_state = state_registry.get_successor_state(current_state, operators[opid]);
+            devised_pop.push_back(opid);
+            current_state_index++;
+        }
+        found_plans.push_back(devised_pop);
+        current_pop_index++;
+    }
+    
+    return found_plans;
+}
+
+set<set<int>> DiversityScore::convert_plan_to_set_of_pops_sets(const vector<Plan>& plan) {
+    set<set<int>> ret_set;
+    
+    for (auto pop : plan) {
+        set<int> plan_to_set;
+        for (auto opid : pop) {
+            plan_to_set.insert(opid.get_index());
+        }
+        ret_set.insert(plan_to_set);
+    }
+    
+    return ret_set;
+}
+
+
+float DiversityScore::get_flex_from_cache(size_t plan_index1, size_t plan_index2) const {
+    if (!use_cache)
+        return -1.0;
+    if (plan_index1 > plan_index2)
+        return get_flex_from_cache(plan_index2, plan_index1);
+    
+    auto it = sgo_metric_cache.find(plan_index1);
+    if ( it != sgo_metric_cache.end()) {
+        auto it2 = (*it).second.find(plan_index2);
+        if (it2 != (*it).second.end())
+            return (*it2).second;
+    }
+    return -1.0;
+}
+
+void DiversityScore::add_flex_to_cache(size_t plan_index1, size_t plan_index2, float value) {
+    if (!use_cache)
+        return;
+    if (plan_index1 > plan_index2) {
+        add_flex_to_cache(plan_index2, plan_index1, value);
+        return;
+    }
+    auto it = flex_metric_cache.find(plan_index1);
+    
+    if ( it == flex_metric_cache.end()) {
+        flex_metric_cache.insert(std::make_pair(plan_index1, unordered_map<size_t, float>()));
+        it = flex_metric_cache.find(plan_index1);
+        assert(it != flex_metric_cache.end());
+    }
+    
+    assert((*it).second.find(plan_index2) == (*it).second.end());
+    (*it).second.insert(std::make_pair(plan_index2, value));
+}
+
+
+float DiversityScore::compute_flex_similarity_score(size_t plan_index1, size_t plan_index2) {
+    
+    auto plan_a = get_plan(plan_index1);
+    auto plan_b = get_plan(plan_index2);
+    
+    if (plan_a.size() < plan_b.size()) {
+        return compute_flex_similarity_score(plan_b, plan_a);
+    }
+    
+    // Try to take from cache;
+    auto ret = get_flex_from_cache(plan_index1, plan_index2);
+    if (ret >= 0.0) {
+        return ret;
+    }
+    
+    ret = compute_flex_similarity_score(plan_a, plan_b);
+    add_flex_to_cache(plan_index1, plan_index2, ret);
+    return ret;
+}
+
+float DiversityScore::compute_flex_similarity_score(const Plan& plan_1, const Plan& plan_2) {
+    auto plan_a_pops = convert_plan_to_set_of_pops_sets(generate_partial_order_plans_from(plan_1));
+    auto plan_b_pops = convert_plan_to_set_of_pops_sets(generate_partial_order_plans_from(plan_2));
+    
+    if (plan_a_pops.empty() || plan_b_pops.empty()) return 0.0;
+    
+    set<set<int>> union_set;
+    set<set<int>> intersection_set;
+    
+    set_intersection(plan_a_pops.begin(), plan_a_pops.end(),
+                     plan_b_pops.begin(), plan_b_pops.end(),
+                     insert_iterator<set<set<int>>>(intersection_set, intersection_set.begin()));
+    
+    set_union(plan_a_pops.begin(), plan_a_pops.end(),
+              plan_b_pops.begin(), plan_b_pops.end(),
+              insert_iterator<set<set<int>>>(union_set, union_set.begin()));
+    
+    auto jaccard_measurement = (float)intersection_set.size() / (float)union_set.size();
+    return jaccard_measurement;
+}
+
+
+
+
+
+
+
 void add_diversity_score_options_to_parser(OptionParser &parser) {
     parser.add_option<bool>("compute_states_metric", "Computing the metric states", "false");
     parser.add_option<bool>("compute_stability_metric", "Computing the metric stability", "false");
     parser.add_option<bool>("compute_uniqueness_metric", "Computing the metric uniqueness", "false");
-
+    parser.add_option<bool>("compute_flex_metric", "Computing the metric flexibility", "false");
+    parser.add_option<bool>("compute_sgo_metric", "Computing the metric subgoal ordering", "false");
+    
     parser.add_option<bool>("similarity", "Computing similarity instead of dissimilarity", "false");
     parser.add_option<bool>("dump_pairs", "Dumping the score of each pair", "false");
-
+    
     vector<string> aggregator;
     aggregator.push_back("AVG");
     aggregator.push_back("MIN");
     parser.add_enum_option(
-        "aggregator_metric",
-        aggregator,
-        "Method for aggregating pairwise results into a metric score",
-        "AVG");
-
+                           "aggregator_metric",
+                           aggregator,
+                           "Method for aggregating pairwise results into a metric score",
+                           "AVG");
+    
     parser.add_option<bool>("all_metrics", "Computing all metrics", "false");
     parser.add_option<bool>("plans_as_multisets", "Treat plans as multisets instead of sets", "false");
     parser.add_option<bool>("use_cache", "Use cache when computing metrics", "true");

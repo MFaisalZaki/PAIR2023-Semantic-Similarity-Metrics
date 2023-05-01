@@ -1,5 +1,5 @@
 #include "diversity_score_subset_optimal.h"
- 
+
 #include "../option_parser.h"
 #include "../plugin.h"
 
@@ -40,7 +40,7 @@ void DiversityScoreSubsetOptimal::compute_metrics() {
         utils::exit_with(utils::ExitCode::SEARCH_INPUT_ERROR);
     }    
     if (dump_plans) {
-        cout << "Found plans for metric " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+        cout << "Found plans for metric " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
         print_plans(selected_plan_indexes);
     }
 }
@@ -50,7 +50,7 @@ size_t DiversityScoreSubsetOptimal::get_binary_var_index(size_t plan_index) cons
 }
 
 void DiversityScoreSubsetOptimal::compute_metric_mip(vector<size_t>& selected_plan_indexes) {
-    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
     if (plans_sets.size() == 0)
         return;
 
@@ -80,7 +80,7 @@ void DiversityScoreSubsetOptimal::compute_metric_mip(vector<size_t>& selected_pl
     vector<lp::LPConstraint> constraints;
     for (size_t i = 0; i < plans_sets.size(); ++i) {
         for (size_t j = i + 1; j < plans_sets.size(); ++j) {
-            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, i, j);
+            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric, i, j);
             //cout << " Plans " << i << ", " << j << ", score: " << current_score << endl;
             //cout << "Diff: " << (current_score - metric_bound) << endl;
             // Adding a constraint
@@ -120,7 +120,7 @@ void DiversityScoreSubsetOptimal::compute_metric_mip(vector<size_t>& selected_pl
     if (selected_plan_indexes.size() > 0) {
         score = lp_solver.get_objective_value();
     }
-    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Score after clustering " << score << ", cluster size " << selected_plan_indexes.size() << ", metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
 }
 
 void DiversityScoreSubsetOptimal::compute_metric_mip_external(vector<size_t>& selected_plan_indexes) {
@@ -131,7 +131,7 @@ void DiversityScoreSubsetOptimal::compute_metric_mip_external(vector<size_t>& se
 void DiversityScoreSubsetOptimal::generate_mip_file(vector<size_t>& selected_plan_indexes) {
 
     (void) selected_plan_indexes;
-    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric) << endl;
+    cout << "Computing metrics " << get_metric_name(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric) << endl;
     if (plans_sets.size() == 0)
         return;
 
@@ -160,7 +160,7 @@ void DiversityScoreSubsetOptimal::generate_mip_file(vector<size_t>& selected_pla
 
     for (size_t i = 0; i < plans_sets.size(); ++i) {
         for (size_t j = i + 1; j < plans_sets.size(); ++j) {
-            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, i, j);
+            float current_score = compute_score_for_pair(compute_stability_metric, compute_states_metric, compute_uniqueness_metric, compute_sgo_metric, compute_flex_metric, i, j);
             //cout << " Plans " << i << ", " << j << ", score: " << current_score << endl;
             //cout << "Diff: " << (current_score - metric_bound) << endl;
             // Adding a constraint

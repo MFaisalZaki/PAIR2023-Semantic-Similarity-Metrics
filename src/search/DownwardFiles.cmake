@@ -800,6 +800,7 @@ fast_downward_plugin(
         diversity_score/diversity_score_subset_bounded
         diversity_score/diversity_score_subset_optimal
         diversity_score/diversity_score_subset_optimal_long
+        diversity_score/operator_interaction
     DEPENDS LP_SOLVER MAX_CLIQUES
     CORE_PLUGIN        
 )
