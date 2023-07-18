@@ -6,10 +6,8 @@ This is the implementation of the paper
 ```
 @InProceedings{mabdelwahed-pair-2023,
   title =        "Bridging the Gap between Structural and Semantic Similarity in Diverse Planning",
-  author =       "Mustafa F Abdelwahed, Joan Espasa Arxer, Alice Toniolo, and Ian P. Gent",
-  booktitle =    "PAIR 2023 - ICAPS Workshop",
-  publisher =    "TBD",
-  pages =        "TBD",
+  author =       "Abdelwahed, Mustafa F. and Espasa Arxer, Joan and Toniolo, Alice and P. Gent, Ian",
+  booktitle = "ICAPS 2023 Workshop on Human-Aware Explainable Planning",
   year =         "2023"
 }
 ```
